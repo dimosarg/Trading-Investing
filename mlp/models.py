@@ -17,9 +17,41 @@ def set_device_cpu():
 
      return device
 
+def overfit_test(model,train_loader,device):
+    model.train()
+    optimizer = optim.Adam(model.parameters(), lr=1e-3)
+    criterion = nn.CrossEntropyLoss()
 
-def train_model(model:nn.Module, train_loader, test_loader, epochs, learning_rate, device=None, start_from_saved=False,
-                checkpoint_path:str=None,target_val_loss=0.005,class_weights=5.0):
+    x_data, y_data = next(iter(train_loader))
+    x_data = x_data.to(device)
+    y_data = y_data.to(device)
+
+    for i in range(300):
+        optimizer.zero_grad()
+        outputs = model(x_data)
+        loss = criterion(outputs, y_data)
+        loss.backward()
+        optimizer.step()
+
+        if i % 50 == 0:
+            preds = t.argmax(outputs, dim=1)
+            acc = (preds == y_data).float().mean().item()
+            print(f"Step {i}: Loss = {loss.item():.4f}, Accuracy = {acc:.4f}")
+
+
+
+def train_model(model:nn.Module,
+                train_loader,
+                test_loader,
+                epochs,
+                learning_rate,
+                device=None,
+                start_from_saved=False,
+                checkpoint_path:str=None,
+                target_val_loss=0.005,
+                buy_class_weights=1.6,
+                sell_class_weights=1.6,
+                holds_class_weights=1.0):
     """
     Train the super-resolution encoder-decoder model
     
@@ -31,6 +63,14 @@ def train_model(model:nn.Module, train_loader, test_loader, epochs, learning_rat
         learning_rate: Learning rate for optimizer
         device: Device to train on (cuda/cpu)
     """
+    if buy_class_weights is int:
+        buy_class_weights = float(buy_class_weights)
+
+    if sell_class_weights is int:
+        sell_class_weights = float(sell_class_weights)
+                                  
+    if holds_class_weights is int:
+        holds_class_weights = float(holds_class_weights)
 
     if device is None:
         device = getdevice()
@@ -48,7 +88,7 @@ def train_model(model:nn.Module, train_loader, test_loader, epochs, learning_rat
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
     
     #Weights
-    weights = t.tensor([1.0, class_weights, class_weights])
+    weights = t.Tensor([holds_class_weights, sell_class_weights, buy_class_weights]).to(device)
 
     # Loss function
     criterion = nn.CrossEntropyLoss(weight=weights)
@@ -74,16 +114,20 @@ def train_model(model:nn.Module, train_loader, test_loader, epochs, learning_rat
             for batch_idx, (x_data, y_data) in enumerate(train_loader):
                 x_data = x_data.to(device)
                 y_data = y_data.to(device)
+
                 
                 # Forward pass
                 optimizer.zero_grad()
-                outputs = model(x_data)
+                outputs = model(x_data).to(device)
                 
                 # Calculate loss
                 loss = criterion(outputs, y_data)
                 
                 # Backward pass and optimize
                 loss.backward()
+                
+                # Gradient clipping
+                t.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)  # Adjust max_norm as needed
                 optimizer.step()
 
                 batch_loss_list.append(loss.item())
@@ -169,26 +213,37 @@ def validate_model(model, val_loader, criterion, device):
     
     return val_loss / len(val_loader)
 
+class LSTMWrapper(nn.Module):
+    def __init__(self, input_dim, hidden_dim, num_layers):
+        super().__init__()
+        self.lstm = nn.LSTM(input_dim, hidden_dim, num_layers, batch_first=True, bidirectional=True)
+
+    def forward(self, x):
+        out, _ = self.lstm(x)
+        return out  #Just return the output, drop hidden states
+
 class LSTMClassificationModel(nn.Module):
     def __init__(self, num_x_data, num_classes, hidden_dim, num_hidden, dropout):
         super().__init__()
         
         hidden_layers = []
-        num_classes = num_classes-1 #to compensate for indexing (num_classes = 3 , index is 0,1,2) 
-
         
-        hidden_layers.append(nn.LSTM(num_x_data,hidden_dim,num_hidden, batch_first=True))
+        hidden_layers.append(LSTMWrapper(num_x_data, hidden_dim, num_hidden))
+        hidden_layers.append(nn.LayerNorm(hidden_dim*2))
         hidden_layers.append(nn.Dropout(dropout))
         hidden_layers.append(nn.ReLU())
-        hidden_layers.append(nn.Linear())
 
         self.lstm_model= nn.Sequential(*hidden_layers)
-        self.attention = nn.Linear(hidden_dim,1)
-        self.fc = nn.Linear(hidden_dim,num_classes)
+        self.attention = nn.Linear(hidden_dim*2,1)
+        self.fc = nn.Linear(hidden_dim*2,num_classes)
     
     def forward(self,x):
-        lstm_output,_ = self.lstm_model(x)
-        attention_weights = t.softmax(self.attention(lstm_output,1))
-        final = t.sum(attention_weights*lstm_output, dim=1)
+        lstm_output = self.lstm_model(x)
+        
+        #Attention
+        scores = self.attention(lstm_output)
+        attention_weights = t.softmax(scores,dim=1)
+        weighted_output = attention_weights*lstm_output
+        final = t.sum(weighted_output, dim=1)
         return self.fc(final)
         
