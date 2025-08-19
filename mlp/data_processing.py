@@ -179,6 +179,84 @@ def macd(prices):
 
 
 
+def support_resistance(prices,
+                    s_r_n_before=5, 
+                    s_r_n_after=5, 
+                    s_r_slope_threshold=0.0, 
+                    s_r_min_change=0.005,
+                    s_r_peak_distance=5, 
+                    s_r_peak_prominence=0.005):
+
+    _,closes,_,_,_=dataprocessing(prices)
+    indicator = np.zeros(len(closes))
+
+    # -------- Slope-based turning points --------
+    slope_turns = np.zeros(len(closes))
+    for i in range(s_r_n_before, len(closes) - s_r_n_after):
+        # slope before
+        x_before = np.arange(s_r_n_before).reshape(-1, 1)
+        y_before = closes[i-s_r_n_before:i]
+        slope_before = LinearRegression().fit(x_before, y_before).coef_[0]
+
+        # slope after
+        x_after = np.arange(s_r_n_after).reshape(-1, 1)
+        y_after = closes[i+1:i+1+s_r_n_after]
+        slope_after = LinearRegression().fit(x_after, y_after).coef_[0]
+
+        # detect reversal
+        if slope_before < -s_r_slope_threshold and slope_after > s_r_slope_threshold:
+            slope_turns[i] = 1  # Buy
+        elif slope_before > s_r_slope_threshold and slope_after < -s_r_slope_threshold:
+            slope_turns[i] = 0.5  # Sell
+
+    # -------- Peak/trough confirmation --------
+    peaks, _ = find_peaks(closes, distance=s_r_peak_distance, prominence=s_r_peak_prominence)
+    troughs, _ = find_peaks(-closes, distance=s_r_peak_distance, prominence=s_r_peak_prominence)
+
+    peak_points = set(peaks)
+    trough_points = set(troughs)
+
+    # -------- Combine slope and peak info --------
+    for i in range(len(closes)):
+        if slope_turns[i] == 1 and i in trough_points:
+            # confirm BUY and filter by min change
+            if (closes[i+s_r_n_after] - closes[i]) / closes[i] > s_r_min_change:
+                indicator[i] = 1
+        elif slope_turns[i] == 0.5 and i in peak_points:
+            # confirm SELL and filter by min change
+            if (closes[i] - closes[i+s_r_n_after]) / closes[i] > s_r_min_change:
+                indicator[i] = 0.5
+
+    return indicator
+
+
+
+def engulfing_candle(prices,stoch_rsi_period,overbought_rsi,oversold_rsi):
+    opens,closes,highs,lows,_=dataprocessing(prices)
+    rsi_vals=rsi(prices,stoch_rsi_period)
+    overbought_rsi=overbought_rsi/100
+    oversold_rsi=oversold_rsi/100
+    eng_candle = np.zeros(len(closes))
+    
+    #bullish engulfing candle
+    for i in range(1,len(closes)):
+        day_before = closes[i-1]-opens[i-1]
+        today = closes[i]-opens[i]
+        #if rsi_vals[i]<oversold_rsi:
+        if day_before<0 and today>0:
+            if closes[i-1]>opens[i] and closes[i]>opens[i-1]:
+                eng_candle[i] = 1
+
+    #bearish engulfing candle
+        #if rsi_vals[i]>overbought_rsi:
+        if day_before>0 and today<0:
+            if closes[i-1]<opens[i] and closes[i]<opens[i-1]:
+                eng_candle[i] = 0.5
+
+    return eng_candle
+ 
+
+
 def labeling(prices,
              days_after_small:int,
              days_after_big:int,

@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 import sys
 
-def getdata(tickers,period=None,start=None,end=None,interval="1d"):
+def getdata(ticker_symbol,period=None,start=None,end=None,interval="1d"):
     """Pulls data from the yFinance database and returns a numpy array of those values\n
     \n
     args:\n
@@ -14,14 +14,14 @@ def getdata(tickers,period=None,start=None,end=None,interval="1d"):
     interval = timeframe in which the data will be collected 
     """
 
-    data = yf.download(tickers=tickers, period=period, start=start, end=end, interval=interval, auto_adjust=False, threads=False)
+    data = yf.download(tickers=ticker_symbol, period=period, start=start, end=end, interval=interval, auto_adjust=False, threads=False)
 
     if (data == 0).all().all() or (data == None).all().all():
         print("Failed to download the data")
         sys.exit()
     else:
-        print(f"Data collected for {tickers} with timeframe of {interval}")
-        np.save("btc-usd",data.to_numpy())
+        print(f"Data collected for {ticker_symbol} with timeframe of {interval}")
+        np.save(ticker_symbol,data.to_numpy())
 
     return data
 

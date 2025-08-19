@@ -5,9 +5,9 @@ import plots as plt
 import models
 import numpy as np
 import torch as t
-from torch.utils.data import DataLoader
 
 #Orismata
+ticker_symbol = "btc-usd"
 stoch_rsi_period = 14
 mfi_period = 14
 bollinger_bands_sma_period = 20
@@ -18,13 +18,25 @@ ema_period_d50 = 50
 days_after_small = 5
 days_after_big = 21
 same_indicator_days = 5
+overbought_rsi = 20 #%
+oversold_rsi = 80 #%
+##labeling
 slope_days_before=5
 slope_days_after=slope_days_before 
 slope_threshold=0.0
 min_change=0.005
-peak_distance=10
+peak_distance=15
 peak_prominence=0.005
-data_file_name = "btc-usd.npy"
+##
+##support resistance
+s_r_slope_days_before=14
+s_r_slope_days_after=s_r_slope_days_before 
+s_r_slope_threshold=0.0
+s_r_min_change=0.01
+s_r_peak_distance=s_r_slope_days_before
+s_r_peak_prominence=0.005
+##
+data_file_name = f"{ticker_symbol}.npy"
 read_data_flag = True
 batch_size = 512
 num_classes = 3
@@ -37,10 +49,11 @@ train_test_split = 0.8
 cpu_flag = False
 start_from_saved = False
 checkpoint_path = None
+val_loss_flag = False
 target_val_loss = 0.005
 holds_class_weights = 1
-alpha_class_weighting = 0.88 #from 0 to 1
-look_back_period = 21
+alpha_class_weighting = 0.88#from 0 to 1
+look_back_period = 14
 cutoff_period = 51
 overfit_test_flag = False
 ##Telos Orismaton
@@ -52,7 +65,10 @@ if read_data_flag:
     prices = data.read_data(data_file_name)
 else:
     print("Searching for data...\n")
-    prices = data.getdata("btc-usd",period="max")
+    prices = data.getdata(ticker_symbol,period="max")
+
+_,closes,_,_,_ = proc.dataprocessing(prices)
+
 
 print("Calculating indicators...\n")
 ema12 = proc.normalize(proc.ema(prices=prices, ema_period=ema_period_d12))
@@ -64,9 +80,17 @@ stochastic = proc.normalize(proc.stoch(prices=prices,stoch_rsi_period=stoch_rsi_
 mfi = proc.normalize(proc.mfi(prices=prices,mfi_period=mfi_period))
 macd = proc.normalize(proc.macd(prices=prices))
 mid_bollinger_band, lower_bollinger_band, higher_bollinger_band, standard_deviation= proc.normalize(proc.bollinger_bands(prices=prices,bollinger_bands_sma_period=bollinger_bands_sma_period))
+eng_candle = proc.engulfing_candle(prices=prices, stoch_rsi_period=stoch_rsi_period, overbought_rsi=overbought_rsi, oversold_rsi=oversold_rsi)
+supp_res = proc.support_resistance(prices=prices,
+                                   s_r_min_change=s_r_min_change,
+                                   s_r_n_after=s_r_slope_days_after,
+                                   s_r_n_before=s_r_slope_days_before,
+                                   s_r_peak_distance=s_r_peak_distance,
+                                   s_r_peak_prominence=s_r_peak_prominence,
+                                   s_r_slope_threshold=s_r_slope_threshold)
 print("Done calculating indicators\n")
 
-print("Normalizing prices...")
+print("Normalizing prices...\n")
 opens,closes,highs,lows,volume = proc.dataprocessing(prices)
 
 opens = proc.normalize(opens)
@@ -75,7 +99,7 @@ highs = proc.normalize(highs)
 lows = proc.normalize(lows)
 volume = proc.normalize(volume)
 
-indicators = np.stack([ema12,ema20,ema50,rsi,stochastic,mfi,macd,standard_deviation,mid_bollinger_band,lower_bollinger_band,higher_bollinger_band],1)
+indicators = np.stack([eng_candle,supp_res,rsi,stochastic,mfi,standard_deviation],1)
 
 num_indic = indicators.shape[1]
 print(f"x_data has {num_indic} indicators\n")
@@ -130,10 +154,10 @@ trained_model, loss_list, val_loss_list, batch_loss_list = models.train_model(
     target_val_loss=target_val_loss,
     buy_class_weights=buy_class_weights,
     sell_class_weights=sell_class_weights,
-    holds_class_weights=holds_class_weights
+    holds_class_weights=holds_class_weights,
+    val_loss_flag=val_loss_flag
     )
 
-_,closes,_,_,_ = proc.dataprocessing(prices)
 
 test_array = x_data[int(round(len(x_data)*train_test_split,0)):len(x_data)]
 test_array_closes = closes[int(round(len(x_data)*train_test_split,0)):len(x_data)]
@@ -144,5 +168,5 @@ test_predictions = trained_model(t.FloatTensor(test_array).to(device))
 test_predictions = t.argmax(test_predictions,dim=1).cpu().detach().numpy()
 
 plt.plot_scatter(test_array_closes, test_predictions, "Prediction of price movement",num_classes)
-#plt.plot_scatter(test_array_closes,test_known_results,"Buy-Sell labels",num_classes)
+plt.plot_scatter(test_array_closes,test_known_results,"Buy-Sell labels",num_classes)
 plt.plot_line_diagram(val_loss_list,"Validation Loss","Validation Loss")

@@ -51,7 +51,8 @@ def train_model(model:nn.Module,
                 target_val_loss=0.005,
                 buy_class_weights=1.6,
                 sell_class_weights=1.6,
-                holds_class_weights=1.0):
+                holds_class_weights=1.0,
+                val_loss_flag=True):
     """
     Train the super-resolution encoder-decoder model
     
@@ -105,7 +106,7 @@ def train_model(model:nn.Module,
     # Training loop
     
     for epoch in range(epochs):
-        if val_loss>=target_val_loss:
+        if val_loss>=target_val_loss and val_loss_flag==True:
             model.train() 
             epoch_loss = 0.0
             start_time = time.time()
@@ -182,7 +183,7 @@ def train_model(model:nn.Module,
                         'loss': avg_loss,
                     }, f'checkpoints\\checkpoint_epoch_{epoch+1}.pth')
             
-        else:
+        elif val_loss<=target_val_loss and val_loss_flag==True:
             t.save({
                     'epoch': epoch,
                     'model_state_dict': model.state_dict(),
@@ -191,6 +192,85 @@ def train_model(model:nn.Module,
                 }, f'checkpoints\\validation_loss_reached_epoch_{epoch+1}.pth')
             print(f"Validation loss target reached\nSaving model at epoch {epoch+1} and validation loss {val_loss:.6f}\n")
             return model, loss_list, val_loss_list, batch_loss_list
+        
+        else:
+            model.train() 
+            epoch_loss = 0.0
+            start_time = time.time()
+        
+        
+            for batch_idx, (x_data, y_data) in enumerate(train_loader):
+                x_data = x_data.to(device)
+                y_data = y_data.to(device)
+
+                
+                # Forward pass
+                optimizer.zero_grad()
+                outputs = model(x_data).to(device)
+                
+                # Calculate loss
+                loss = criterion(outputs, y_data)
+                
+                # Backward pass and optimize
+                loss.backward()
+                
+                # Gradient clipping
+                t.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)  # Adjust max_norm as needed
+                optimizer.step()
+
+                batch_loss_list.append(loss.item())
+                
+                epoch_loss += loss.item()
+                
+                # Print progress
+                if batch_idx % 100 == 0:
+                    print(f'Epoch: {epoch+1}/{epochs} | Batch: {batch_idx}/{len(train_loader)} | '
+                        f'Batch Loss: {loss.item():.6f}')
+            
+            # Calculate epoch statistics
+            avg_loss = epoch_loss / len(train_loader)
+            epoch_time = time.time() - start_time
+            loss_list.append(avg_loss)
+            
+            # Validation
+            val_loss = validate_model(model, test_loader, criterion, device)
+            val_loss_list.append(val_loss)
+
+            print(f'Epoch {epoch+1} completed in {epoch_time:.2f}s | '
+                f'Training Loss: {avg_loss:.6f} | Validation Loss: {val_loss:.6f}\n')
+            # Save checkpoint
+            if (epoch + 1) % 2 == 0:
+                if start_from_saved==True:
+                    split_vals=checkpoint_path.split(sep="_")
+                    try:
+                        splittier_vals=split_vals[2].split(sep=".")
+                        previous_epoch_state=int(splittier_vals[0])
+                        t.save({
+                        'epoch': epoch,
+                        'model_state_dict': model.state_dict(),
+                        'optimizer_state_dict': optimizer.state_dict(),
+                        'loss': avg_loss,
+                    }, f'checkpoints\\checkpoint_epoch_{epoch+1+previous_epoch_state}.pth')
+                        start_from_saved=False
+                    except:
+                        print("Could not convert previous epoch state to integer\n")
+                        t.save({
+                            'epoch': epoch,
+                            'model_state_dict': model.state_dict(),
+                            'optimizer_state_dict': optimizer.state_dict(),
+                            'loss': avg_loss,
+                        }, f'checkpoints\\checkpoint_epoch_{epoch+1}.pth')
+                        start_from_saved=False
+                    
+                else:
+                    t.save({
+                        'epoch': epoch,
+                        'model_state_dict': model.state_dict(),
+                        'optimizer_state_dict': optimizer.state_dict(),
+                        'loss': avg_loss,
+                    }, f'checkpoints\\checkpoint_epoch_{epoch+1}.pth')
+
+
                 
             
             

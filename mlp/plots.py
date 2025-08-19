@@ -25,7 +25,7 @@ def plot_line_diagram(y:list,title,label):
     plt.close()
 
 def plot_scatter(prices,y,title,num_classes):
-    color_map = {0:"k", 1:"r", 2:"g"}
+    color_map = {-1:"b" ,0:"k", 1:"r", 2:"g"}
     x=np.arange(len(prices))
     plt.figure(1)
     for class_label in range(num_classes):
