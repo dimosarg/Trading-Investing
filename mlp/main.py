@@ -2,6 +2,7 @@ import data_collection as data
 import data_processing as proc
 import data_to_torch as dtt
 import plots as plt
+import backtesting as bck
 import models
 import numpy as np
 import torch as t
@@ -21,7 +22,7 @@ same_indicator_days = 5
 overbought_rsi = 20 #%
 oversold_rsi = 80 #%
 ##labeling
-slope_days_before=5
+slope_days_before=21
 slope_days_after=slope_days_before 
 slope_threshold=0.0
 min_change=0.005
@@ -48,14 +49,17 @@ learning_rate = 0.001
 train_test_split = 0.8
 cpu_flag = False
 start_from_saved = False
-checkpoint_path = None
-val_loss_flag = False
+checkpoint_path = "checkpoints\\checkpoint_epoch_100.pth"
+target_val_loss_flag = False
 target_val_loss = 0.005
 holds_class_weights = 1
-alpha_class_weighting = 0.88#from 0 to 1
+alpha_class_weighting = 0.86#from 0 to 1
 look_back_period = 14
 cutoff_period = 51
 overfit_test_flag = False
+
+amount = 100
+leverage = 2
 ##Telos Orismaton
 
 device = models.getdevice()
@@ -93,6 +97,7 @@ print("Done calculating indicators\n")
 print("Normalizing prices...\n")
 opens,closes,highs,lows,volume = proc.dataprocessing(prices)
 
+unnormalized_closes = closes
 opens = proc.normalize(opens)
 closes = proc.normalize(closes)
 highs = proc.normalize(highs)
@@ -155,12 +160,13 @@ trained_model, loss_list, val_loss_list, batch_loss_list = models.train_model(
     buy_class_weights=buy_class_weights,
     sell_class_weights=sell_class_weights,
     holds_class_weights=holds_class_weights,
-    val_loss_flag=val_loss_flag
+    val_loss_flag=target_val_loss_flag
     )
 
 
 test_array = x_data[int(round(len(x_data)*train_test_split,0)):len(x_data)]
 test_array_closes = closes[int(round(len(x_data)*train_test_split,0)):len(x_data)]
+test_array_unnormalized_closes = unnormalized_closes[int(round(len(x_data)*train_test_split,0)):len(x_data)]
 test_known_results = y_data[int(round(len(x_data)*train_test_split,0)):len(x_data)]
 
 test_predictions = trained_model(t.FloatTensor(test_array).to(device))
@@ -170,3 +176,10 @@ test_predictions = t.argmax(test_predictions,dim=1).cpu().detach().numpy()
 plt.plot_scatter(test_array_closes, test_predictions, "Prediction of price movement",num_classes)
 plt.plot_scatter(test_array_closes,test_known_results,"Buy-Sell labels",num_classes)
 plt.plot_line_diagram(val_loss_list,"Validation Loss","Validation Loss")
+
+final_amount, profit_perc, profit_money = bck.with_holds(ypred=test_predictions, test_closes=test_array_unnormalized_closes, leverage=leverage, amount=amount)
+final_amount_rev, profit_perc_rev, profit_money_rev = bck.with_holds_reverse(ypred=test_predictions, test_closes=test_array_unnormalized_closes, leverage=leverage, amount=amount)
+
+print(f"Strategy:\nFinal amount: {final_amount}\nProfit percentage: {profit_perc}\nProfit: {profit_money}\n")
+print(f"Reverse strategy:\nFinal amount: {final_amount_rev}\nProfit percentage: {profit_perc_rev}\nProfit: {profit_money_rev}")
+
