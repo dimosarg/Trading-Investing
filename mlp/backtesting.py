@@ -302,6 +302,64 @@ def with_holds(ypred, test_closes, amount, leverage):
     profitmoney=amount-original_amount
 
     return final_amount, profitperc, profitmoney
+
+
+
+def with_holds_stop_loss(ypred, test_closes, amount, leverage, stop_loss_percentage=20):
+    """Whenever the prediction changes, the algorythm closes the previous position and opens another one with
+    oposite direction. Additionally, if the price reaches the stop_loss_percentage (20%) of the position in the 
+    oposite direction, the position closes automatically\n
+    
+    args:\n
+
+    ypred = Predictions (Numpy array)\n
+    test_closes = Close prices of the test data (Numpy array)\n
+    amount = Amount invested (float)\n
+    leverage = Leverage (int)\n
+    stop_loss_percentage = Percent where if the price exceeds the position in oposite direction, the position executes stop loss (int)
+    """
+    original_amount = amount
+    current_position = [0,0]
+    position_perc=[0,0]
+    profit = 0
+    stop_loss_perc = stop_loss_percentage/100
+
+    for i in range(1,len(ypred)):
+        if ypred[i]!=0:
+            current_position.append(int(ypred[i]))
+
+        if test_closes[i]<position_perc[-1]*(1-stop_loss_perc):
+            if current_position[-1] == 2:
+                profit =  position_perc[-2]*leverage*(test_closes[i]-position_perc[-1])
+                current_position.append(0)
+                current_position.append(0)
+                
+        elif test_closes[i]>position_perc[-1]*(1+stop_loss_perc):
+            if current_position[-1] == 1:
+                profit =  position_perc[-2]*leverage*(position_perc[-1]-test_closes[i])
+                current_position.append(0)
+                current_position.append(0)
+
+        if ypred[i] != ypred[i-1] and ypred[i] != 0 and current_position[-1] != current_position[-2]:
+            
+            #calculate profits of previous position
+            if current_position[-2] == 1:
+                profit =  position_perc[-2]*leverage*(position_perc[-1]-test_closes[i])
+            elif current_position[-2] == 2:
+                profit =  position_perc[-2]*leverage*(test_closes[i]-position_perc[-1])
+            
+            #close previous position
+            amount = amount+profit
+
+            #start new position
+            position_perc.append(amount/test_closes[i])
+            position_perc.append(test_closes[i])
+
+    final_amount = amount
+    profitperc=((amount-original_amount)/original_amount)*100
+    profitmoney=amount-original_amount
+
+    return final_amount, profitperc, profitmoney
             
             
         

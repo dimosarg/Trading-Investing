@@ -44,12 +44,12 @@ num_classes = 3
 hidden_dim = 256
 num_hidden = 3
 dropout = 0.3
-epochs = 100
+epochs = 1
 learning_rate = 0.001
 train_test_split = 0.8
 cpu_flag = False
-start_from_saved = False
-checkpoint_path = "checkpoints\\checkpoint_epoch_100.pth"
+start_from_saved = True
+checkpoint_path = "checkpoints\\checkpoint_epoch_250.pth"
 target_val_loss_flag = False
 target_val_loss = 0.005
 holds_class_weights = 1
@@ -58,8 +58,9 @@ look_back_period = 14
 cutoff_period = 51
 overfit_test_flag = False
 
-amount = 100
+amount = 50
 leverage = 2
+stop_loss_percentage = 20
 ##Telos Orismaton
 
 device = models.getdevice()
@@ -104,7 +105,7 @@ highs = proc.normalize(highs)
 lows = proc.normalize(lows)
 volume = proc.normalize(volume)
 
-indicators = np.stack([eng_candle,supp_res,rsi,stochastic,mfi,standard_deviation],1)
+indicators = np.stack([ema12,ema20,ema26,eng_candle,supp_res,rsi,stochastic,mfi,macd,standard_deviation,mid_bollinger_band,higher_bollinger_band,lower_bollinger_band],1) #This works [eng_candle,supp_res,rsi,stochastic,mfi,standard_deviation]]
 
 num_indic = indicators.shape[1]
 print(f"x_data has {num_indic} indicators\n")
@@ -178,8 +179,10 @@ plt.plot_scatter(test_array_closes,test_known_results,"Buy-Sell labels",num_clas
 plt.plot_line_diagram(val_loss_list,"Validation Loss","Validation Loss")
 
 final_amount, profit_perc, profit_money = bck.with_holds(ypred=test_predictions, test_closes=test_array_unnormalized_closes, leverage=leverage, amount=amount)
-final_amount_rev, profit_perc_rev, profit_money_rev = bck.with_holds_reverse(ypred=test_predictions, test_closes=test_array_unnormalized_closes, leverage=leverage, amount=amount)
+#final_amount_sl, profit_perc_sl, profit_money_sl = bck.with_holds_stop_loss(ypred=test_predictions, test_closes=test_array_unnormalized_closes, leverage=leverage, amount=amount, stop_loss_percentage=stop_loss_percentage)
+#final_amount_rev, profit_perc_rev, profit_money_rev = bck.with_holds_reverse(ypred=test_predictions, test_closes=test_array_unnormalized_closes, leverage=leverage, amount=amount)
 
 print(f"Strategy:\nFinal amount: {final_amount}\nProfit percentage: {profit_perc}\nProfit: {profit_money}\n")
-print(f"Reverse strategy:\nFinal amount: {final_amount_rev}\nProfit percentage: {profit_perc_rev}\nProfit: {profit_money_rev}")
+#print(f"Stop loss strategy:\nFinal amount: {final_amount_sl}\nProfit percentage: {profit_perc_sl}\nProfit: {profit_money_sl}\n")
+#print(f"Reverse strategy:\nFinal amount: {final_amount_rev}\nProfit percentage: {profit_perc_rev}\nProfit: {profit_money_rev}")
 
